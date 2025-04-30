@@ -1,0 +1,9 @@
+1. Combine all year data of 1200 crytocurrency
+2. Set up the window of choosing Nc(Number of coins include in the index)
+Tn = 90
+3. Set up the window of choosing a_base(the base index for the window period)
+Tw = 30
+4. Write the calculation process for the first 90 days data for test
+5. Use for loop to calculate the Nc for each windows.
+
+

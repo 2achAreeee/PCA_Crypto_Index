@@ -1,0 +1,925 @@
+---
+title: "Crypto Index"
+author: "Zeyan Huang"
+date: "2025-03-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(psych)
+library(ggplot2)
+library(dplyr)
+```
+
+# Data
+```{r}
+# Data preparation
+# data from Coingecko
+folder_path <- "market_cap_data/"
+all_files <- list.files(folder_path)
+
+
+dataset <- lapply(all_files, function(x){
+  data <- read.csv(paste0(folder_path, x), header = TRUE)
+  data <- data[-nrow(data), ]
+  data$Date <- as.Date(data$date)
+  data <- data[order(data$Date),]
+  data <- data[!duplicated(data$Date), ]
+
+  
+  price <- as.numeric(data$market_cap)
+  names(price) <- data$Date
+  return(price)
+}
+  )
+
+# Name the data list
+file_names <- gsub("\\.csv", "", all_files)
+names(dataset) <- file_names
+```
+
+
+```{r}
+# Step 1: Convert each price series to a dataframe with Date + market cap
+dataset_aligned <- lapply(names(dataset), function(name) {
+  df <- data.frame(Date = as.Date(names(dataset[[name]])),
+                   Cap = dataset[[name]])
+  colnames(df)[2] <- name
+  return(df)
+})
+
+# Step 2: Merge all dataframes by Date, using full outer join
+data <- Reduce(function(x, y) merge(x, y, by = "Date", all = TRUE),
+                      dataset_aligned)
+
+# Step 3: set all NA value as 0
+# data[is.na(data)] <- 0
+
+# Set Date as row index
+rownames(data) <- data$Date
+data$Date <- NULL
+```
+
+### Static Index
+```{r}
+# Data prep
+data_static_index <- data
+```
+
+```{r}
+data_static_index[is.na(data_static_index)] <- 0
+```
+# Biplot
+```{r}
+pca_static_index <- prcomp(data_static_index, scale. = TRUE)
+
+# # PC1 vs PC2
+# biplot(pca_static_index, choices = c(1, 2), scale = 0, cex = 0, main = "Biplot PC1 vs PC2")
+# 
+# # PC1 vs PC3
+# biplot(pca_static_index, choices = c(1, 3), scale = 0, main = "Biplot PC1 vs PC3")
+# 
+# # PC2 vs PC3
+# biplot(pca_static_index, choices = c(2, 3), scale = 0, main = "Biplot PC2 vs PC3")
+# 
+# # PC3 vs PC4
+# biplot(pca_static_index, choices = c(3, 4), scale = 0, main = "Biplot PC3 vs PC4")
+```
+
+```{r}
+(pca_static_index$sdev[1])^2
+sum((pca_static_index$sdev)^2)
+(pca_static_index$sdev[1])^2/sum((pca_static_index$sdev)^2)*100
+```
+
+
+
+```{r}
+static_index <- as.matrix(data_static_index) %*% as.vector(pca_static_index$rotation[,1])
+
+static_index <- as.data.frame(static_index)
+
+static_index$Date <- as.Date(rownames(static_index))
+
+plot(static_index$Date, static_index$V1, type = "l", xlab = "Date", ylab = "PCA Static Index")
+```
+
+
+```{r}
+# Get the daily market capitalization
+data_mc <- data.frame(RowSum = rowSums(data_static_index))
+
+# If you want to keep rownames:
+rownames(data_mc) <- rownames(data_static_index)
+```
+
+```{r}
+# Combine the data_mc with static_index
+data_mc_si <- merge(static_index, data_mc, by = "row.names")
+rownames(data_mc_si) <- data_mc_si$Row.names
+data_mc_si$Row.names <- NULL
+```
+
+
+```{r}
+plot(data_mc_si$Date, data_mc_si$V1, type = "l", col = "blue", xlab = "Date", ylab = "Static Index")
+
+par(new = TRUE)
+plot(data_mc_si$Date, data_mc_si$RowSum, type = "l", col = "red", axes = FALSE, xlab = "", ylab = "")
+axis(side = 4)  # Add right-side axis
+mtext("Market Capitalization", side = 4, line = 3)  # Label for right Y-axis
+
+# Add legend
+legend("topright", legend = c("Static Index", "Market Capitalization"),
+       col = c("blue", "red"), lty = 1, cex = 0.5)
+```
+
+## Step 1: Setting
+```{r}
+# Choose of Nc: Every 90 days
+Tn = 90
+
+# Choose of a_base: Every 30 days
+Tw = 30
+```
+
+## Calculating Nc for the first 90 days
+```{r, warning=FALSE}
+data_90_1_clean <- data %>%
+  slice(1:90) %>%                     # Select the first 90 rows (time window)
+  select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
+  select(where(~ all(. != 0))) %>%    # Drop columns that contain any 0 values
+  select(where(~ {                    # Drop columns with 0 or NA standard deviation
+    sd_x <- sd(., na.rm = TRUE)       # Calculate standard deviation ignoring NA
+    is.finite(sd_x) && sd_x > 0       # Keep only columns with valid, non-zero SD
+  })) %>%
+  { .[, order(-as.numeric(.[1, ]))] } # Sort the remaining columns by the first row, descending     
+
+head(data_90_1_clean)
+```
+
+```{r}
+# Step 1: Calculate PC1 for all columns
+pca_full_90_1 <- prcomp(data_90_1_clean, scale. = TRUE)
+
+# Initialize a list to store PC1 for each subset of columns
+pc1_list_90_1 <- list()
+index_list_90_1 <- list()
+
+# Loop through subsets of columns (from 1:2, 1:3, ..., 1:ncol)
+for (i in 2:ncol(data_90_1_clean)) {
+  subset_data <- data_90_1_clean[, 1:i]
+  pca_subset <- prcomp(subset_data, scale. = TRUE)
+  pc1_subset <- pca_subset$rotation[, 1]
+  temp_index <- as.matrix(subset_data) %*% as.vector(pc1_subset)
+  pc1_list_90_1[[i - 1]] <- pc1_subset  # Store in list (index starts at 1)
+  index_list_90_1[[i - 1]] <- temp_index
+}
+
+# Output first few PC1 vectors in the list
+# print(pc1_list[[1]])  # PC1 for columns 1:2
+#print(pc1_list[[length(pc1_list)]])  # PC1 for columns 1:ncol
+```
+
+```{r}
+# Initialize a vector to store the correlations
+correlations_90_1 <- numeric(length(pc1_list_90_1) - 1)
+
+# Index with all crypto
+index_all_90_1 <- index_list_90_1[[length(index_list_90_1)]]
+
+# Calculate the Correlation
+for (i in 1: (length(index_list_90_1)-1)){
+  correlations_90_1[i] <- cor(index_list_90_1[[i]], index_all_90_1)
+}
+```
+
+```{r}
+# Find the first index where correlation >= 0.9999
+threshold <- 0.99
+first_reach_index_90_1 <- which(correlations_90_1 >= threshold)[1]
+
+# Print the index
+print(paste("First correlation ≥ 0.99 at subset index:", first_reach_index_90_1))
+```
+
+
+```{r}
+plot(correlations_90_1, type = "l", col = "blue", lwd = 2,
+     xlab = "Subset Index", 
+     ylab = "Correlation with Last Vector",
+     main = "Correlation of Each Subset PC1 with Full PC1")
+
+# Add points to the line
+points(correlations_90_1, col = "red", pch = 19, cex = 0.5)
+
+# Add a horizontal line at 0.9999
+abline(h = threshold, col = "green", lty = 2)
+
+# Add a horizontal line at correlation = 1 for reference
+abline(h = 1, col = "gray", lty = 2)
+
+# Add text annotation
+text(first_reach_index_90_1, correlations_90_1[first_reach_index_90_1], 
+     labels = paste0("Index ", first_reach_index_90_1, "\nCorr ", round(correlations_90_1[first_reach_index_90_1], 4)),
+     pos = 4, col = "purple")
+```
+
+```{r}
+# Create a data frame (table) with subset index and correlations
+correlation_table_90_1 <- data.frame(
+  Subset_Index = 2:(length(correlations_90_1)+1),
+  Correlation_with_Last = correlations_90_1
+)
+
+# View the table
+print(head(correlation_table_90_1, 10))
+
+```
+
+## Calculating Nc for the second 90 days
+```{r, warning=FALSE}
+data_90_2_clean <- data %>%
+  slice(31:120) %>%                     # Select the first 90 rows (time window)
+  select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
+  select(where(~ all(. != 0))) %>%    # Drop columns that contain any 0 values
+  select(where(~ {                    # Drop columns with 0 or NA standard deviation
+    sd_x <- sd(., na.rm = TRUE)       # Calculate standard deviation ignoring NA
+    is.finite(sd_x) && sd_x > 0       # Keep only columns with valid, non-zero SD
+  })) %>%
+  { .[, order(-as.numeric(.[1, ]))] } # Sort the remaining columns by the first row, descending     
+
+head(data_90_2_clean)
+```
+
+```{r}
+# Step 1: Calculate PC1 for all columns
+pca_full_90_2 <- prcomp(data_90_2_clean, scale. = TRUE)
+pc1_full_90_2 <- pca_full_90_2$x[, 1]  # The first principal component scores
+
+# Initialize a list to store PC1 for each subset of columns
+pc1_list_90_2 <- list()
+index_list_90_2 <- list()
+
+# Loop through subsets of columns (from 1:2, 1:3, ..., 1:ncol)
+for (i in 2:ncol(data_90_2_clean)) {
+  subset_data <- data_90_2_clean[, 1:i]
+  pca_subset <- prcomp(subset_data, scale. = TRUE)
+  pc1_subset <- pca_subset$rotation[, 1]
+  temp_index <- as.matrix(subset_data) %*% as.vector(pc1_subset)
+  pc1_list_90_2[[i - 1]] <- pc1_subset  # Store in list (index starts at 1)
+  index_list_90_2[[i - 1]] <- temp_index
+}
+
+# Output first few PC1 vectors in the list
+# print(pc1_list[[1]])  # PC1 for columns 1:2
+#print(pc1_list[[length(pc1_list)]])  # PC1 for columns 1:ncol
+```
+
+```{r}
+# Initialize a vector to store the correlations
+correlations_90_2 <- numeric(length(pc1_list_90_2) - 1)
+
+# Index with all crypto
+index_all_90_2 <- index_list_90_2[[length(index_list_90_2)]]
+
+# Calculate the Correlation
+for (i in 1: (length(index_list_90_2)-1)){
+  correlations_90_2[i] <- abs(cor(index_list_90_2[[i]], index_all_90_2))
+}
+```
+
+```{r}
+plot(correlations_90_2, type = "l", col = "blue", lwd = 2,
+     xlab = "Subset Index", 
+     ylab = "Correlation with Last Vector",
+     main = "Correlation of Each Subset PC1 with Full PC1")
+
+# Add points to the line
+points(correlations_90_2, col = "red", pch = 19, cex = 0.5)
+
+# Add a horizontal line at correlation = 1 for reference
+abline(h = 1, col = "gray", lty = 2)
+```
+
+```{r}
+# Create a data frame (table) with subset index and correlations
+correlation_table_90_2 <- data.frame(
+  Subset_Index = 2:(length(correlations_90_2)+1),
+  Correlation_with_Last = correlations_90_2
+)
+
+# View the table
+print(head(correlation_table_90_2, 10))
+
+```
+
+
+## Calculating Nc for the third 90 days
+```{r, warning=FALSE}
+data_90_3_clean <- data %>%
+  slice(61:150) %>%                     # Select the first 90 rows (time window)
+  select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
+  select(where(~ all(. != 0))) %>%    # Drop columns that contain any 0 values
+  select(where(~ {                    # Drop columns with 0 or NA standard deviation
+    sd_x <- sd(., na.rm = TRUE)       # Calculate standard deviation ignoring NA
+    is.finite(sd_x) && sd_x > 0       # Keep only columns with valid, non-zero SD
+  })) %>%
+  { .[, order(-as.numeric(.[1, ]))] } # Sort the remaining columns by the first row, descending     
+
+head(data_90_3_clean)
+```
+
+```{r}
+# Step 1: Calculate PC1 for all columns
+pca_full_90_3 <- prcomp(data_90_3_clean, scale. = TRUE)
+pc1_full_90_3 <- pca_full_90_3$x[, 1]  # The first principal component scores
+
+# Initialize a list to store PC1 for each subset of columns
+pc1_list_90_3 <- list()
+index_list_90_3 <- list()
+
+# Loop through subsets of columns (from 1:2, 1:3, ..., 1:ncol)
+for (i in 2:ncol(data_90_3_clean)) {
+  subset_data <- data_90_3_clean[, 1:i]
+  pca_subset <- prcomp(subset_data, scale. = TRUE)
+  pc1_subset <- pca_subset$rotation[, 1]
+  temp_index <- as.matrix(subset_data) %*% as.vector(pc1_subset)
+  pc1_list_90_3[[i - 1]] <- pc1_subset  # Store in list (index starts at 1)
+  index_list_90_3[[i - 1]] <- temp_index
+}
+
+# Output first few PC1 vectors in the list
+# print(pc1_list[[1]])  # PC1 for columns 1:2
+#print(pc1_list[[length(pc1_list)]])  # PC1 for columns 1:ncol
+```
+
+```{r}
+# Initialize a vector to store the correlations
+correlations_90_3 <- numeric(length(pc1_list_90_3) - 1)
+
+# Index with all crypto
+index_all_90_3 <- index_list_90_3[[length(index_list_90_3)]]
+
+# Calculate the Correlation
+for (i in 1: (length(index_list_90_3)-1)){
+  correlations_90_3[i] <- abs(cor(index_list_90_3[[i]], index_all_90_3))
+}
+```
+
+```{r}
+plot(correlations_90_3, type = "l", col = "blue", lwd = 2,
+     xlab = "Subset Index", 
+     ylab = "Correlation with Last Vector",
+     main = "Correlation of Each Subset PC1 with Full PC1")
+
+# Add points to the line
+points(correlations_90_3, col = "red", pch = 19, cex = 0.5)
+
+# Add a horizontal line at correlation = 1 for reference
+abline(h = 1, col = "gray", lty = 2)
+```
+
+```{r}
+# Create a data frame (table) with subset index and correlations
+correlation_table_90_3 <- data.frame(
+  Subset_Index = 2:(length(correlations_90_3)+1),
+  Correlation_with_Last = correlations_90_3
+)
+
+# View the table
+print(head(correlation_table_90_3, 10))
+
+```
+
+## Calculating Nc for the forth 90 days
+```{r, warning=FALSE}
+data_90_4_clean <- data %>%
+  slice(91:180) %>%                     # Select the first 90 rows (time window)
+  select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
+  select(where(~ all(. != 0))) %>%    # Drop columns that contain any 0 values
+  select(where(~ {                    # Drop columns with 0 or NA standard deviation
+    sd_x <- sd(., na.rm = TRUE)       # Calculate standard deviation ignoring NA
+    is.finite(sd_x) && sd_x > 0       # Keep only columns with valid, non-zero SD
+  })) %>%
+  { .[, order(-as.numeric(.[1, ]))] } # Sort the remaining columns by the first row, descending     
+
+head(data_90_4_clean)
+```
+
+```{r}
+# Step 1: Calculate PC1 for all columns
+pca_full_90_4 <- prcomp(data_90_4_clean, scale. = TRUE)
+pc1_full_90_4 <- pca_full_90_4$x[, 1]  # The first principal component scores
+
+# Initialize a list to store PC1 for each subset of columns
+pc1_list_90_4 <- list()
+index_list_90_4 <- list()
+
+# Loop through subsets of columns (from 1:2, 1:3, ..., 1:ncol)
+for (i in 2:ncol(data_90_4_clean)) {
+  subset_data <- data_90_4_clean[, 1:i]
+  pca_subset <- prcomp(subset_data, scale. = TRUE)
+  pc1_subset <- pca_subset$rotation[, 1]
+  temp_index <- as.matrix(subset_data) %*% as.vector(pc1_subset)
+  pc1_list_90_4[[i - 1]] <- pc1_subset  # Store in list (index starts at 1)
+  index_list_90_4[[i - 1]] <- temp_index
+}
+
+# Output first few PC1 vectors in the list
+# print(pc1_list[[1]])  # PC1 for columns 1:2
+#print(pc1_list[[length(pc1_list)]])  # PC1 for columns 1:ncol
+```
+
+```{r}
+# Initialize a vector to store the correlations
+correlations_90_4 <- numeric(length(pc1_list_90_4) - 1)
+
+# Index with all crypto
+index_all_90_4 <- index_list_90_4[[length(index_list_90_4)]]
+
+# Calculate the Correlation
+for (i in 1: (length(index_list_90_4)-1)){
+  correlations_90_4[i] <- abs(cor(index_list_90_4[[i]], index_all_90_4))
+}
+```
+
+```{r}
+plot(correlations_90_4, type = "l", col = "blue", lwd = 2,
+     xlab = "Subset Index", 
+     ylab = "Correlation with Last Vector",
+     main = "Correlation of Each Subset PC1 with Full PC1")
+
+# Add points to the line
+points(correlations_90_4, col = "red", pch = 19, cex = 0.5)
+
+# Add a horizontal line at correlation = 1 for reference
+abline(h = 1, col = "gray", lty = 2)
+```
+
+```{r}
+# Create a data frame (table) with subset index and correlations
+correlation_table_90_4 <- data.frame(
+  Subset_Index = 2:(length(correlations_90_4)+1),
+  Correlation_with_Last = correlations_90_4
+)
+
+# View the table
+print(head(correlation_table_90_4, 10))
+
+```
+
+
+# Nc constituents Update function
+```{r}
+Nc_cal <- function(dataframe, threshold = 0.99){
+  # Step 1: Calculate PC1 for all columns
+  pca_full_temp <- prcomp(dataframe, scale. = TRUE)
+
+  # Initialize a list to store PC1 for each subset of columns
+  pc1_list_temp <- list()
+  index_list_temp <- list()
+  variance_explained_list <- list()
+
+  # Loop through subsets of columns (from 1:2, 1:3, ..., 1:ncol)
+  for (i in 2:ncol(dataframe)) {
+    subset_data <- dataframe[, 1:i]
+    pca_subset <- prcomp(subset_data, scale. = TRUE)
+    pc1_subset <- pca_subset$rotation[, 1]
+    
+    pc_1_v <- (pca_subset$sdev[1])^2
+    pc_all_v <- sum((pca_subset$sdev)^2)
+    pc_1_explained_v_pct <- pc_1_v/pc_all_v
+    variance_explained_list[[i]] <- list(pc_1_v, pc_all_v, pc_1_explained_v_pct)
+    
+    temp_index <- as.matrix(subset_data) %*% as.vector(pc1_subset)
+    pc1_list_temp[[i]] <- pc1_subset  # Store in list (index starts at 1)
+    index_list_temp[[i]] <- temp_index
+  }
+
+  # Initialize a vector to store the correlations
+  correlations_temp <- numeric(length(pc1_list_temp) - 1)
+
+  # Index with all crypto
+  index_all_temp <- index_list_temp[[length(index_list_temp)]]
+
+  # Calculate the Correlation
+  for (i in 2: (length(index_list_temp))){
+    correlations_temp[i] <- cor(index_list_temp[[i]], index_all_temp)
+  }
+
+  # Find the first index where correlation >= threshold
+  first_reach_index_temp <- which(correlations_temp >= threshold)[1]
+  chosen_crypto_list <- c(colnames(dataframe)[1:first_reach_index_temp])
+
+  output_list <- list()
+  output_list[['Index']] <- index_list_temp
+  output_list[['Correlation']] <- correlations_temp
+  output_list[['Nc']] <- first_reach_index_temp
+  output_list[['Choosen Crypto']] <- chosen_crypto_list
+  output_list[['Variance']] <- variance_explained_list
+  return(output_list)
+}
+```
+
+# Basic dynamic index calculation function
+```{r}
+dynamic_index_base <- function(dataframe, Tw = 30){
+  a_list <- c()
+  a_base <- as.numeric(dataframe[Tw+1,])%*%as.vector(prcomp(dataframe[1:Tw,], scale.= TRUE)$rotation[,1])
+  a_list <- append(a_list, 1)
+  for (i in 2:Tw){
+    a_t <- (as.numeric(dataframe[Tw+i,])%*%as.vector(prcomp(dataframe[i:(Tw+i-1),], scale.= TRUE)$rotation[,1]))/a_base
+    a_list <- c(a_list, a_t)
+    
+  }
+  a_t_df <- data.frame(Value = a_list, row.names = rownames(dataframe[(Tw+1):(Tw+Tw),]))
+  
+  return(a_t_df)
+}
+```
+# Dynamic Index
+```{r}
+dynamic_index_cal <- function(dataframe, Tn = 90, Tn_gap = 30, Tw = 30, threshold = 0.99){
+  
+  # Nc Choosing process
+  nc_result <- list()
+  n_iter <- floor((nrow(dataframe) - Tn) / Tn_gap)
+  for (i in 0:n_iter){
+    data_90 <- dataframe %>%
+    slice((1+i*30):(90+i*30)) %>%                     # Select the first 90 rows (time window)
+    select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
+    select(where(~ all(. != 0))) %>%    # Drop columns that contain any 0 values
+    select(where(~ {                    # Drop columns with 0 or NA standard deviation
+      sd_x <- sd(., na.rm = TRUE)       # Calculate standard deviation ignoring NA
+      is.finite(sd_x) && sd_x > 0       # Keep only columns with valid, non-zero SD
+    })) %>%
+    { .[, order(-as.numeric(.[1, ]))] } # Sort the remaining columns by the first row, descending
+    
+    nc_result[[i+1]] <- Nc_cal(data_90, threshold = threshold)
+  }
+  
+  # Dynamic Index Calculation
+  dynamic_index_results <- list()
+  for (i in 1:length(nc_result)){
+    data_60 <- dataframe %>%
+    slice((31+i*30):(90+i*30)) %>%       # Select the required 60 rows (time window)
+    select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
+    select(where(~ all(. != 0))) %>%
+    select(all_of(nc_result[[i]][["Choosen Crypto"]]))# Filter by selected crypto
+    if (nrow(data_60) < 60){
+      break
+    }
+    dynamic_index_results[[i]] <- dynamic_index_base(data_60)
+  }
+  
+  final_results <- list(nc_result, dynamic_index_results)
+  return(final_results)
+}
+
+```
+
+
+```{r}
+# Assuming dynamic_index_results is in second part of list
+dynamic_index_results <- c[[2]]
+
+# Remove NULLs if any
+dynamic_index_results <- Filter(Negate(is.null), dynamic_index_results)
+
+# Combine
+combined_dynamic_index <- do.call(rbind, dynamic_index_results)
+
+# View
+head(combined_dynamic_index)
+```
+```{r}
+data_mc_filtered <- data_mc[rownames(combined_dynamic_index), ]
+
+# Step 3: Combine by columns (cbind)
+combined_df <- cbind(combined_dynamic_index, data_mc_filtered)
+
+# View result
+head(combined_df)
+```
+
+```{r}
+combined_df$Date <- as.Date(rownames(combined_df))
+plot(combined_df$Date, 1000*combined_df$Value, type = "l", col = "blue", xlab = "Date", ylab = "Dynamic Index")
+
+par(new = TRUE)
+plot(combined_df$Date, combined_df$data_mc_filtered, type = "l", col = "red", axes = FALSE, xlab = "", ylab = "")
+axis(side = 4)  # Add right-side axis
+mtext("Market Capitalization", side = 4, line = 3)  # Label for right Y-axis
+
+# Add legend
+legend("topright", legend = c("Dynamic Index", "Market Capitalization"),
+       col = c("blue", "red"), lty = 1, cex = 0.5)
+```
+
+
+
+# PAST CODE
+
+
+```{r}
+R <- cor(data)
+
+# Drop columns with 0 or NA standard deviation
+data_clean <- data[, apply(data, 2, function(x) {
+  sd_x <- sd(x, na.rm = TRUE)
+  is.finite(sd_x) && sd_x > 0
+})]
+```
+```{r}
+R_clean <- cor(data_clean)
+```
+
+```{r}
+# Extract eigenvalues and eigenvectors
+lambda_pca <- eigen(R_clean)$values
+V_pca <- eigen(R_clean)$vectors
+
+# Compute variance contribution (percentage of total variance)
+variance_explained <- (lambda_pca / sum(lambda_pca)) * 100
+
+# Create a table showing eigenvalues and variance contribution
+pca_table <- data.frame(
+  Component = 1:length(lambda_pca),
+  Eigenvalue = lambda_pca,
+  Variance_Explained = variance_explained
+)
+
+# Sort in decreasing order
+pca_table <- pca_table[order(-pca_table$Variance_Explained),]
+
+# Print results
+cat("\nPCA Eigenvalues and Variance Explained:\n")
+print(pca_table)
+```
+
+```{r}
+
+```
+
+
+```{r}
+# Parameters
+window_size <- 30
+step <- window_size
+n_windows <- floor(nrow(data) / (window_size))
+dates <- as.Date(rownames(data))
+
+results <- list()
+
+for (i in 0:(n_windows - 1)) {
+  start_train <- i * window_size + 1
+  end_train <- start_train + window_size - 1
+  if (end_train > nrow(data)) end_train <- nrow(data)
+  start_test <- end_train + 1
+  end_test <- start_test + window_size - 1
+
+  if (end_test > nrow(data)) break
+
+  train_data <- data[start_train:end_train, ]
+  test_data <- data[start_test:end_test, ]
+  
+  # Drop columns that are all zeros in training window
+  valid_cols <- colSums(train_data != 0) > 0
+  train_data <- train_data[, valid_cols]
+  
+  
+  train_data <- train_data[, apply(train_data, 2, function(x) {
+  sd_x <- sd(x, na.rm = TRUE)
+  is.finite(sd_x) && sd_x > 0
+  })]
+  test_data <- test_data[,colnames(train_data)]
+  
+  
+  
+  print(train_data)
+  # Run PCA
+  print(i)
+  pca <- prcomp(train_data, center = TRUE, scale. = TRUE)
+  pc1 <- pca$rotation[, 1]  # first principal component
+  
+  # Project each test day onto PC1
+  projected <- as.matrix(test_data) %*% pc1
+
+
+  # Store with date
+  df_proj <- data.frame(
+    date = dates[start_test:end_test],
+    projection = as.numeric(projected)
+  )
+  results[[i + 1]] <- df_proj
+}
+
+# Combine all projections
+daily_projections <- do.call(rbind, results)
+print(head(daily_projections))
+```
+
+```{r}
+ggplot(daily_projections, aes(x = date, y = projection)) +
+  geom_line(color = "steelblue", size = 1) +
+  labs(
+    title = "Rolling PCA Projection (PC1)",
+    x = "Date",
+    y = "PC1 Projection Value"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+
+
+```{r}
+data_90_1 <- data[1:90, ]
+
+# Drop the crypto which enter the market later than the windows start day
+data_90_1 <- Filter(function(x) all(!is.na(x)), data_90_1)
+
+# Drop columns with 0 or NA standard deviation
+data_90_1_clean <- data_90_1[, apply(data_90_1, 2, function(x) {
+  sd_x <- sd(x, na.rm = TRUE)
+  is.finite(sd_x) && sd_x > 0
+})]
+
+R_90_1 <- cor(data_90_1_clean)
+
+pca_90_1 <- prcomp(R_90_1, center = TRUE, scale. = TRUE)
+pc_90_1<- data.frame(pca_90_1$rotation) # all principal component
+```
+
+```{r}
+# Calculate the index contains all PC
+loading_all_pc_90_1 <- rowSums(pc_90_1)
+index_all_pc_90_1 <- as.matrix(data_90_1_clean) %*% loading_all_pc_90_1
+```
+
+```{r}
+correlation_ls_90_1 <- list()
+k <- 1
+threshold <- 0.9999
+
+while (k <= ncol(pc_90_1)) {
+  # Step 1: Get the first k PCs
+  pc_k <- pc_90_1[,1:k]
+  # Step 2: Get the row sum
+  if (k == 1) {
+    loading_k_pc <- pc_k
+  } else {
+    loading_k_pc <- rowSums(pc_k)
+  }
+  # Step 3: Get the index with k PC
+  index_k_pc <- as.matrix(data_90_1_clean) %*% loading_k_pc
+  index_k_pc <- as.vector(index_k_pc)
+  # Step 4: Calculate the Correlation between index-k-pc and index-all-pc
+  corr_k <- cor(index_k_pc, index_all_pc_90_1)
+  correlation_ls_90_1[[k]] <- corr_k
+  
+  # Step 5: Break if correlation is high enough
+  if (corr_k >= threshold) {
+    cat("Threshold reached at k =", k, "with correlation =", corr_k, "\n")
+    break
+  }
+
+  # Next k
+  k <- k + 1
+}
+```
+
+## Assume we use NC = 6 since the index with 6 PC has correlation more than 0.95 with index_all
+```{r}
+# Use the data from 61 to 180 as first period
+data_61_180 <- data[61:180, colnames(data_90_1_clean)]
+```
+
+
+```{r}
+# Parameters
+window_size <- Tw
+step <- window_size
+n_windows <- 90
+Nc <- 6
+dates <- as.Date(rownames(data_61_180))
+
+results <- list()
+
+for (i in 0:(n_windows - 1)) {
+  start_train <- i * window_size + 1
+  end_train <- start_train + window_size - 1
+  if (end_train > nrow(data)) end_train <- nrow(data)
+
+  train_data <- data_61_180[start_train:end_train, ]
+  test_data <- data_61_180[end_train+1, ]
+  
+  train_data <- train_data[, apply(train_data, 2, function(x) {
+  sd_x <- sd(x, na.rm = TRUE)
+  is.finite(sd_x) && sd_x > 0
+  })]
+  test_data <- test_data[,colnames(train_data)]
+  
+  # print(train_data)
+  # Run PCA
+  print(i)
+  pca <- prcomp(train_data, center = TRUE, scale. = TRUE)
+  pc <- pca$rotation[, 1:Nc]
+  loading_Nc_pc <- rowSums(pc)
+  
+  # Project each test day onto PC
+  projected <- as.matrix(test_data) %*% loading_Nc_pc
+  
+  if (i == 0 || i == 30 || i == 60){
+    a_base <- projected
+  }
+  
+  index <- projected/a_base
+
+  # Store with date
+  df_proj <- data.frame(
+    date = dates[end_train+1],
+    projection = as.numeric(index)
+  )
+  results[[i + 1]] <- df_proj
+}
+
+# Combine all projections
+daily_projections <- do.call(rbind, results)
+print(head(daily_projections))
+```
+
+
+
+
+
+
+## 91-180
+## Calculating Nc for the first 90 days
+```{r}
+data_180_1 <- data[91:180, ]
+
+# Drop the crypto which enter the market later than the windows start day
+data_180_1 <- Filter(function(x) all(!is.na(x)), data_180_1)
+
+# Drop columns with 0 or NA standard deviation
+data_180_1_clean <- data_180_1[, apply(data_180_1, 2, function(x) {
+  sd_x <- sd(x, na.rm = TRUE)
+  is.finite(sd_x) && sd_x > 0
+})]
+
+R_180_1 <- cor(data_180_1_clean)
+
+pca_180_1 <- prcomp(R_180_1, center = TRUE, scale. = TRUE)
+pc_180_1<- data.frame(pca_180_1$rotation) # all principal component
+```
+
+```{r}
+# Calculate the index contains all PC
+loading_all_pc_180_1 <- rowSums(pc_180_1)
+index_all_pc_180_1 <- as.matrix(data_180_1_clean) %*% loading_all_pc_180_1
+```
+
+```{r}
+correlation_ls_180_1 <- list()
+k <- 1
+threshold <- 0.9999
+
+while (k <= ncol(pc_180_1)) {
+  # Step 1: Get the first k PCs
+  pc_k <- pc_180_1[,1:k]
+  # Step 2: Get the row sum
+  if (k == 1) {
+    loading_k_pc <- pc_k
+  } else {
+    loading_k_pc <- rowSums(pc_k)
+  }
+  # Step 3: Get the index with k PC
+  index_k_pc <- as.matrix(data_180_1_clean) %*% loading_k_pc
+  index_k_pc <- as.vector(index_k_pc)
+  # Step 4: Calculate the Correlation between index-k-pc and index-all-pc
+  corr_k <- cor(index_k_pc, index_all_pc_180_1)
+  correlation_ls_180_1[[k]] <- corr_k
+  
+  # Step 5: Break if correlation is high enough
+  if (corr_k >= threshold) {
+    cat("Threshold reached at k =", k, "with correlation =", corr_k, "\n")
+    break
+  }
+
+  # Next k
+  k <- k + 1
+}
+```
+
+
+
