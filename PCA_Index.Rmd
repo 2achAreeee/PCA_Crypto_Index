@@ -91,9 +91,9 @@ pca_static_index <- prcomp(data_static_index, scale. = TRUE)
 ```
 
 ```{r}
-(pca_static_index$sdev[1])^2
+(pca_static_index$sdev[1:7])^2
 sum((pca_static_index$sdev)^2)
-(pca_static_index$sdev[1])^2/sum((pca_static_index$sdev)^2)*100
+sum((pca_static_index$sdev[1:2])^2)/sum((pca_static_index$sdev)^2)*100
 ```
 
 
@@ -130,6 +130,32 @@ plot(data_mc_si$Date, data_mc_si$V1, type = "l", col = "blue", xlab = "Date", yl
 
 par(new = TRUE)
 plot(data_mc_si$Date, data_mc_si$RowSum, type = "l", col = "red", axes = FALSE, xlab = "", ylab = "")
+axis(side = 4)  # Add right-side axis
+mtext("Market Capitalization", side = 4, line = 3)  # Label for right Y-axis
+
+# Add legend
+legend("topright", legend = c("Static Index", "Market Capitalization"),
+       col = c("blue", "red"), lty = 1, cex = 0.5)
+```
+
+```{r}
+static_index_pc8 <- abs(as.matrix(data_static_index) %*% as.vector(rowSums(pca_static_index$rotation[,1:2])))
+
+static_index_pc8  <- as.data.frame(static_index_pc8 )
+
+static_index_pc8$Date <- as.Date(rownames(static_index_pc8))
+
+# Combine the data_mc with static_index
+data_mc_si_pc8 <- merge(static_index_pc8, data_mc, by = "row.names")
+rownames(data_mc_si_pc8) <- data_mc_si_pc8$Row.names
+data_mc_si_pc8$Row.names <- NULL
+```
+
+```{r}
+plot(data_mc_si_pc8$Date, data_mc_si_pc8$V1, type = "l", col = "blue", xlab = "Date", ylab = "Static Index")
+
+par(new = TRUE)
+plot(data_mc_si_pc8$Date, data_mc_si_pc8$RowSum, type = "l", col = "red", axes = FALSE, xlab = "", ylab = "")
 axis(side = 4)  # Add right-side axis
 mtext("Market Capitalization", side = 4, line = 3)  # Label for right Y-axis
 
@@ -551,7 +577,7 @@ dynamic_index_cal <- function(dataframe, Tn = 90, Tn_gap = 30, Tw = 30, threshol
   n_iter <- floor((nrow(dataframe) - Tn) / Tn_gap)
   for (i in 0:n_iter){
     data_90 <- dataframe %>%
-    slice((1+i*30):(90+i*30)) %>%                     # Select the first 90 rows (time window)
+    slice((1+i*30):(90+i*30)) %>%       # Select the first 90 rows (time window)
     select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
     select(where(~ all(. != 0))) %>%    # Drop columns that contain any 0 values
     select(where(~ {                    # Drop columns with 0 or NA standard deviation
