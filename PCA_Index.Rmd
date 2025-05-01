@@ -64,7 +64,7 @@ rownames(data) <- data$Date
 data$Date <- NULL
 ```
 
-### Static Index
+# Static Index
 ```{r}
 # Data prep
 data_static_index <- data
@@ -552,17 +552,21 @@ Nc_cal <- function(dataframe, threshold = 0.99){
 }
 ```
 
-# Basic dynamic index calculation function
+# Basic dynamic index calculation function for single period
 ```{r}
 dynamic_index_base <- function(dataframe, Tw = 30){
   a_list <- c()
   a_base <- as.numeric(dataframe[Tw+1,])%*%as.vector(prcomp(dataframe[1:Tw,], scale.= TRUE)$rotation[,1])
   a_list <- append(a_list, 1)
-  for (i in 2:Tw){
-    a_t <- (as.numeric(dataframe[Tw+i,])%*%as.vector(prcomp(dataframe[i:(Tw+i-1),], scale.= TRUE)$rotation[,1]))/a_base
-    a_list <- c(a_list, a_t)
-    
-  }
+  # for (i in 2:Tw){
+  #   a_t <- (as.numeric(dataframe[Tw+i,])%*%as.vector(prcomp(dataframe[i:(Tw+i-1),], scale.= TRUE)$rotation[,1]))/a_base
+  #   a_list <- c(a_list, a_t)
+  #   
+  # }
+  # a_t_df <- data.frame(Value = a_list, row.names = rownames(dataframe[(Tw+1):(Tw+Tw),]))
+  a_t <- as.matrix(dataframe[(Tw+2):(Tw+Tw),])%*%as.vector(prcomp(dataframe[1:Tw,], scale.= TRUE)$rotation[,1])
+  
+  a_list <- c(a_list, as.vector(a_t)/c(a_base))
   a_t_df <- data.frame(Value = a_list, row.names = rownames(dataframe[(Tw+1):(Tw+Tw),]))
   
   return(a_t_df)
@@ -609,6 +613,9 @@ dynamic_index_cal <- function(dataframe, Tn = 90, Tn_gap = 30, Tw = 30, threshol
 
 ```
 
+```{r}
+c<- dynamic_index_cal(data)
+```
 
 ```{r}
 # Assuming dynamic_index_results is in second part of list
