@@ -15,6 +15,54 @@ Nc_cal function
 7. Write the function to calculate the actual index value for each windows.
 dynamic_index_base function
 
-6. Use for loop to calculate the Nc for each windows, saved in NC_list.
+8. Use for loop to calculate the Nc for each windows, saved in NC_list.
+
+9. Check the method of updating m: Average of pre 30 days; Previous days data
+    Previous days data is better.
+    
+    
+
+
+10. three factor model: linear regression
+
+
+### Unable updating cryptoes:
+The following coins failed to update after two attempts:
+  - anonfi
+  - bim
+  - gama-coin
+  - general-layer-btc
+  - jumbo-blockchain
+  - moonrabbits
+  - qash
+  - rcge
+  - sonic-bridged-usdc-e-sonic
+  - uxd-protocol-token
+  
+  
+Construction of three factor:
+We will create a new script, scripts/factor_calculation.py, to handle this. The three factors we will calculate are:
+
+MKT (Market Factor): The excess return of the overall crypto market.
+
+SMB (Small Minus Big): The return of a portfolio of small-cap cryptos minus the return of big-cap cryptos.
+
+WML (Winners Minus Losers): A Momentum Factor that captures the tendency for assets that have performed well in the past to continue performing well. This is a common academic factor and is much more practical for you to calculate than a "Value" (HML) factor, as value metrics like the NVT ratio are difficult to source for 1,000+ coins.
+
+The Challenge with HML for Crypto
+As we've discussed, the traditional HML factor uses the Book-to-Market (B/M) ratio to define "value" vs. "growth" stocks. This doesn't exist for cryptocurrencies.
+
+However, a widely accepted and practical proxy in financial literature, which works very well for crypto, is to use past returns over a short horizon. The academic principle is that assets that have performed very poorly recently (losers) tend to behave like "value" or "distressed" assets, while assets that have performed very well (winners) behave like "growth" or "glamour" assets.
+
+Therefore, we will construct our HML factor based on a short-term reversal strategy:
+
+"High" B/M (Value Portfolio): This will be the portfolio of recent Losers. We will call this the LOW_RET portfolio.
+
+"Low" B/M (Growth Portfolio): This will be the portfolio of recent Winners. We will call this the HIGH_RET portfolio.
+
+HML Factor Calculation: HML = Return(LOW_RET) - Return(HIGH_RET)
+
+We will use the previous month's return to form our portfolios at the beginning of each month.
+  
 
 
