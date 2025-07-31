@@ -26,6 +26,8 @@ YAHOO_TICKERS_FILE = ASSET_LISTS_DIR / 'crypto_tickers.json' # This is the varia
 # --- Processed Data Paths ---
 MARKET_CAP_FILE_PATH = PROCESSED_DATA_DIR / 'market_cap_full.csv'
 DAILY_RETURN_FILE_PATH = PROCESSED_DATA_DIR / 'daily_return_full.csv'
+DAILY_PRICE_FILE_PATH = PROCESSED_DATA_DIR / 'daily_price_full.csv'
+DAILY_SUPPLY_FILE_PATH = PROCESSED_DATA_DIR / 'daily_supply_full.csv'
 INDEX_FILE_PATH = PROCESSED_DATA_DIR / 'dynamic_pca_index.csv'
 NC_RESULTS_CACHE_PATH = PROCESSED_DATA_DIR / 'nc_results_cache.json'
 THREE_FACTOR_FILE_PATH = PROCESSED_DATA_DIR / 'three_factors.csv'
@@ -41,4 +43,4 @@ INDEX_START_VALUE = 1000
 TN_LOOKBACK = 90  # Look-back period for choosing components
 TN_GAP = 30       # Step size for each iteration
 TW_CALCULATION = 60 # Calculation window for the index segment
-VARIANCE_THRESHOLD = 0.99
+VARIANCE_THRESHOLD = 0.9999

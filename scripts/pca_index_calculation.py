@@ -208,8 +208,8 @@ def dynamic_index_cal_py(dataframe: pd.DataFrame, tn: int = 90, tn_gap: int = 30
     print("\nStarting Dynamic Index calculation...")
     for i, nc_info in enumerate(nc_results):
         # The calculation window starts 30 days into the 90-day selection window
-        start_row_60 = i * tn_gap + (tn - Tw)
-        end_row_60 = tn + i * tn_gap
+        start_row_60 = i * tn_gap + (tn - tw)
+        end_row_60 = (tn + tw) + i * tn_gap
 
         # Select the 60-day window
         data_60 = dataframe.iloc[start_row_60:end_row_60].copy()
@@ -221,11 +221,11 @@ def dynamic_index_cal_py(dataframe: pd.DataFrame, tn: int = 90, tn_gap: int = 30
         # Further clean this specific window
         data_60 = data_60.loc[:, (data_60.notna().all() & (data_60 != 0).all())]
 
-        if len(data_60) < Tw or data_60.shape[1] < 1:
+        if len(data_60) < (tn - tw) or data_60.shape[1] < 1:
             print(f"  Skipping Iteration {i + 1}: Not enough valid data for index calculation.")
             continue
 
-        index_segment = dynamic_index_base_py(data_60, m_start = m)
+        index_segment = dynamic_index_base_py(data_60, m_start = m, tw = tw)
 
         if not index_segment.empty:
             dynamic_index_results.append(index_segment)
@@ -282,15 +282,18 @@ if __name__ == '__main__':
 
     # 2. Calculate the Dynamic Index
     market_cap_full_data = pd.read_csv(config.MARKET_CAP_FILE_PATH, index_col='Date', parse_dates=True)
+
+    # market_cap_full_data.dropna(axis=1)
+
     nc_res, index_res = dynamic_index_cal_py(market_cap_full_data)
 
     output_index = pd.concat(index_res)
     output_index.to_csv(config.INDEX_FILE_PATH)
     # Save the newly calculated results to the cache
-    config.PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(config.NC_RESULTS_CACHE_PATH, 'w') as f:
-        json.dump(nc_res, f, indent=4)
-    print(f"Nc results saved to cache: {config.NC_RESULTS_CACHE_PATH}")
+    # config.PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # with open(config.NC_RESULTS_CACHE_PATH, 'w') as f:
+    #     json.dump(nc_res, f, indent=4)
+    # print(f"Nc results saved to cache: {config.NC_RESULTS_CACHE_PATH}")
 
     # 3. Combine and Plot Results
     if index_res:
@@ -327,7 +330,49 @@ if __name__ == '__main__':
         fig.autofmt_xdate()
         plt.title('Dynamic PCA Index vs. Total Market Capitalization')
 
-        # Combine legends from both axes
+        # Combine legends from both axes# 3. Combine and Plot Results
+        #     if index_res:
+        #         # Combine all the index segments into one continuous series
+        #         combined_dynamic_index = pd.concat(index_res)
+        #         # Remove any duplicate index entries that might occur at the seams
+        #         combined_dynamic_index = combined_dynamic_index[~combined_dynamic_index.index.duplicated(keep='first')]
+        #
+        #         # For comparison, calculate the total market capitalization
+        #         total_market_cap = market_cap_full_data.sum(axis=1)
+        #
+        #         # Align the total market cap data with the index data
+        #         aligned_market_cap = total_market_cap.reindex(combined_dynamic_index.index)
+        #
+        #         # Plotting
+        #         fig, ax1 = plt.subplots(figsize=(14, 7))
+        #
+        #         # Plot Dynamic Index on the left y-axis
+        #         ax1.plot(combined_dynamic_index.index, combined_dynamic_index, color='blue', label='Dynamic PCA Index')
+        #         ax1.set_xlabel('Date')
+        #         ax1.set_ylabel('Dynamic Index Value', color='blue')
+        #         ax1.tick_params(axis='y', labelcolor='blue')
+        #         ax1.grid(True)
+        #
+        #         # Create a second y-axis for the total market capitalization
+        #         ax2 = ax1.twinx()
+        #         ax2.plot(aligned_market_cap.index, aligned_market_cap, color='red', alpha=0.6, linestyle='--',
+        #                  label='Total Market Cap')
+        #         ax2.set_ylabel('Total Market Capitalization', color='red')
+        #         ax2.tick_params(axis='y', labelcolor='red')
+        #
+        #         # Formatting and Legends
+        #         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        #         fig.autofmt_xdate()
+        #         plt.title('Dynamic PCA Index vs. Total Market Capitalization')
+        #
+        #         # Combine legends from both axes
+        #         lines, labels = ax1.get_legend_handles_labels()
+        #         lines2, labels2 = ax2.get_legend_handles_labels()
+        #         ax2.legend(lines + lines2, labels + labels2, loc='upper left')
+        #
+        #         plt.show()
+        #     else:
+        #         print("Could not generate index results. The dataset might be too sparse or short.")
         lines, labels = ax1.get_legend_handles_labels()
         lines2, labels2 = ax2.get_legend_handles_labels()
         ax2.legend(lines + lines2, labels + labels2, loc='upper left')

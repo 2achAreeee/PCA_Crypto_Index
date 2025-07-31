@@ -151,8 +151,8 @@ def calculate_factors(pca_index_data, daily_returns, market_caps):
             continue
 
         # Define quantile-based portfolios (e.g., top and bottom 30%)
-        q30 = past_returns.quantile(0.3)
-        q70 = past_returns.quantile(0.7)
+        q30 = past_returns.quantile(0.4)
+        q70 = past_returns.quantile(0.6)
         losers = past_returns[past_returns <= q30].index
         winners = past_returns[past_returns >= q70].index
 

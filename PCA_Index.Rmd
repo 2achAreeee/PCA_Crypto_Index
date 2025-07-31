@@ -654,7 +654,219 @@ legend("topright", legend = c("Dynamic Index", "Market Capitalization"),
        col = c("blue", "red"), lty = 1, cex = 0.5)
 ```
 
+# Basic dynamic index calculation function for single period with m = Previous days data
+```{r}
+dynamic_index_base_m_pre <- function(dataframe, Tw = 30, m = 1){
+  a_list <- c()
+  a_base <- as.numeric(dataframe[Tw+1,])%*%as.vector(prcomp(dataframe[1:Tw,], scale.= TRUE)$rotation[,1])
+  a_list <- append(a_list, m)
+  # for (i in 2:Tw){
+  #   a_t <- (as.numeric(dataframe[Tw+i,])%*%as.vector(prcomp(dataframe[i:(Tw+i-1),], scale.= TRUE)$rotation[,1]))/a_base
+  #   a_list <- c(a_list, a_t)
+  #   
+  # }
+  # a_t_df <- data.frame(Value = a_list, row.names = rownames(dataframe[(Tw+1):(Tw+Tw),]))
+  a_t <- as.matrix(dataframe[(Tw+2):(Tw+Tw),])%*%as.vector(prcomp(dataframe[1:Tw,], scale.= TRUE)$rotation[,1]) * m
+  
+  a_list <- c(a_list, as.vector(a_t)/c(a_base))
+  a_t_df <- data.frame(Value = a_list, row.names = rownames(dataframe[(Tw+1):(Tw+Tw),]))
+  
+  return(a_t_df)
+}
+```
 
+# Dynamic Index
+```{r}
+dynamic_index_cal_m_pre <- function(dataframe, Tn = 90, Tn_gap = 30, Tw = 30, threshold = 0.99){
+  
+  # Nc Choosing process
+  nc_result <- list()
+  n_iter <- floor((nrow(dataframe) - Tn) / Tn_gap)
+  for (i in 0:n_iter){
+    data_90 <- dataframe %>%
+    slice((1+i*30):(90+i*30)) %>%       # Select the first 90 rows (time window)
+    select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
+    select(where(~ all(. != 0))) %>%    # Drop columns that contain any 0 values
+    select(where(~ {                    # Drop columns with 0 or NA standard deviation
+      sd_x <- sd(., na.rm = TRUE)       # Calculate standard deviation ignoring NA
+      is.finite(sd_x) && sd_x > 0       # Keep only columns with valid, non-zero SD
+    })) %>%
+    { .[, order(-as.numeric(.[1, ]))] } # Sort the remaining columns by the first row, descending
+    
+    nc_result[[i+1]] <- Nc_cal(data_90, threshold = threshold)
+  }
+  
+  # Dynamic Index Calculation
+  dynamic_index_results <- list()
+  m <- 1
+  for (i in 1:length(nc_result)){
+    data_60 <- dataframe %>%
+    slice((31+i*30):(90+i*30)) %>%       # Select the required 60 rows (time window)
+    select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
+    select(where(~ all(. != 0))) %>%
+    select(all_of(nc_result[[i]][["Choosen Crypto"]]))# Filter by selected crypto
+    if (nrow(data_60) < 60){
+      break
+    }
+    dynamic_index_results[[i]] <- dynamic_index_base_m_pre(data_60, m = m)
+    m <- dynamic_index_results[[i]][30, 1]
+    print(m)
+  }
+  
+  final_results <- list(nc_result, dynamic_index_results)
+  return(final_results)
+}
+
+```
+
+```{r}
+c_m_pre<- dynamic_index_cal_m_pre(data)
+```
+
+```{r}
+# Assuming dynamic_index_results is in second part of list
+dynamic_index_results_m_pre <- c_m_pre[[2]]
+
+# Remove NULLs if any
+dynamic_index_results_m_pre <- Filter(Negate(is.null), dynamic_index_results_m_pre)
+
+# Combine
+combined_dynamic_index_m_pre <- do.call(rbind, dynamic_index_results_m_pre)
+
+# View
+head(combined_dynamic_index_m_pre)
+```
+
+```{r}
+data_mc_filtered_m_pre <- data_mc[rownames(combined_dynamic_index_m_pre), ]
+
+# Step 3: Combine by columns (cbind)
+combined_df_m_pre <- cbind(combined_dynamic_index_m_pre, data_mc_filtered)
+
+# View result
+head(combined_df_m_pre)
+```
+
+```{r}
+combined_df_m_pre$Date <- as.Date(rownames(combined_df_m_pre))
+plot(combined_df_m_pre$Date, 1000*combined_df_m_pre$Value, type = "l", col = "blue", xlab = "Date", ylab = "Dynamic Index")
+
+par(new = TRUE)
+plot(combined_df_m_pre$Date, combined_df_m_pre$data_mc_filtered, type = "l", col = "red", axes = FALSE, xlab = "", ylab = "")
+axis(side = 4)  # Add right-side axis
+mtext("Market Capitalization", side = 4, line = 3)  # Label for right Y-axis
+
+# Add legend
+legend("topright", legend = c("Dynamic Index", "Market Capitalization"),
+       col = c("blue", "red"), lty = 1, cex = 0.5)
+```
+
+# Basic dynamic index calculation function for single period with m = Previous 30 days data
+```{r}
+dynamic_index_base_m_30 <- function(dataframe, Tw = 30, m = 1){
+  a_list <- c()
+  a_base <- as.numeric(dataframe[Tw+1,])%*%as.vector(prcomp(dataframe[1:Tw,], scale.= TRUE)$rotation[,1])
+  a_list <- append(a_list, m)
+  # for (i in 2:Tw){
+  #   a_t <- (as.numeric(dataframe[Tw+i,])%*%as.vector(prcomp(dataframe[i:(Tw+i-1),], scale.= TRUE)$rotation[,1]))/a_base
+  #   a_list <- c(a_list, a_t)
+  #   
+  # }
+  # a_t_df <- data.frame(Value = a_list, row.names = rownames(dataframe[(Tw+1):(Tw+Tw),]))
+  a_t <- as.matrix(dataframe[(Tw+2):(Tw+Tw),])%*%as.vector(prcomp(dataframe[1:Tw,], scale.= TRUE)$rotation[,1]) * m
+  
+  a_list <- c(a_list, as.vector(a_t)/c(a_base))
+  a_t_df <- data.frame(Value = a_list, row.names = rownames(dataframe[(Tw+1):(Tw+Tw),]))
+  
+  return(a_t_df)
+}
+```
+
+# Dynamic Index
+```{r}
+dynamic_index_cal_m_30 <- function(dataframe, Tn = 90, Tn_gap = 30, Tw = 30, threshold = 0.99){
+  
+  # Nc Choosing process
+  nc_result <- list()
+  n_iter <- floor((nrow(dataframe) - Tn) / Tn_gap)
+  for (i in 0:n_iter){
+    data_90 <- dataframe %>%
+    slice((1+i*30):(90+i*30)) %>%       # Select the first 90 rows (time window)
+    select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
+    select(where(~ all(. != 0))) %>%    # Drop columns that contain any 0 values
+    select(where(~ {                    # Drop columns with 0 or NA standard deviation
+      sd_x <- sd(., na.rm = TRUE)       # Calculate standard deviation ignoring NA
+      is.finite(sd_x) && sd_x > 0       # Keep only columns with valid, non-zero SD
+    })) %>%
+    { .[, order(-as.numeric(.[1, ]))] } # Sort the remaining columns by the first row, descending
+    
+    nc_result[[i+1]] <- Nc_cal(data_90, threshold = threshold)
+  }
+  
+  # Dynamic Index Calculation
+  dynamic_index_results <- list()
+  m <- 1
+  for (i in 1:length(nc_result)){
+    data_60 <- dataframe %>%
+    slice((31+i*30):(90+i*30)) %>%       # Select the required 60 rows (time window)
+    select(where(~ all(!is.na(.)))) %>% # Drop columns that contain any NA values
+    select(where(~ all(. != 0))) %>%
+    select(all_of(nc_result[[i]][["Choosen Crypto"]]))# Filter by selected crypto
+    if (nrow(data_60) < 60){
+      break
+    }
+    dynamic_index_results[[i]] <- dynamic_index_base_m_30(data_60, m = m)
+    m <- mean(dynamic_index_results[[i]][[1]], na.rm = TRUE)
+    print(m)
+  }
+  
+  final_results <- list(nc_result, dynamic_index_results)
+  return(final_results)
+}
+
+```
+
+```{r}
+c_m_30<- dynamic_index_cal_m_30(data)
+```
+
+```{r}
+# Assuming dynamic_index_results is in second part of list
+dynamic_index_results_m_30 <- c_m_30[[2]]
+
+# Remove NULLs if any
+dynamic_index_results_m_30 <- Filter(Negate(is.null), dynamic_index_results_m_30)
+
+# Combine
+combined_dynamic_index_m_30 <- do.call(rbind, dynamic_index_results_m_30)
+
+# View
+head(combined_dynamic_index_m_30)
+```
+
+```{r}
+data_mc_filtered_m_30 <- data_mc[rownames(combined_dynamic_index_m_30), ]
+
+# Step 3: Combine by columns (cbind)
+combined_df_m_30 <- cbind(combined_dynamic_index_m_30, data_mc_filtered)
+
+# View result
+head(combined_df_m_30)
+```
+
+```{r}
+combined_df_m_30$Date <- as.Date(rownames(combined_df_m_30))
+plot(combined_df_m_30$Date, 1000*combined_df_m_30$Value, type = "l", col = "blue", xlab = "Date", ylab = "Dynamic Index")
+
+par(new = TRUE)
+plot(combined_df_m_30$Date, combined_df_m_30$data_mc_filtered, type = "l", col = "red", axes = FALSE, xlab = "", ylab = "")
+axis(side = 4)  # Add right-side axis
+mtext("Market Capitalization", side = 4, line = 3)  # Label for right Y-axis
+
+# Add legend
+legend("topright", legend = c("Dynamic Index", "Market Capitalization"),
+       col = c("blue", "red"), lty = 1, cex = 0.5)
+```
 
 # PAST CODE
 
